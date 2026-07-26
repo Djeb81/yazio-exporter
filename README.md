@@ -4,13 +4,13 @@ Export all your [Yazio](https://www.yazio.com/) nutrition, body, and exercise da
 
 ## Features
 
-- **Full data coverage** — daily diary, consumed items (products + recipes), weight & body measurements, exercises, water intake, micronutrients (40+ vitamins & minerals), and user profile
-- **Three output formats** — JSON (pretty-printed), CSV (one file per data type), SQLite (normalized with foreign keys and indexes)
-- **Built-in analytics** — calorie stats, macro ratios, meal distribution, weight trend, calorie-weight correlation, top products
-- **LLM-ready analysis** — generates a compact prompt you can paste into ChatGPT, Claude, DeepSeek, or Gemini for personalized nutrition insights
-- **Auto-discovery** — scans your history automatically, no date range needed
-- **Concurrent fetching** — parallel API calls (up to 10 workers) for fast exports
-- **One-shot export** — `export-all` dumps everything in a single command
+- **Full data coverage** - daily diary, consumed items (products + recipes), weight & body measurements, exercises, water intake, micronutrients (40+ vitamins & minerals), and user profile
+- **Three output formats** - JSON (pretty-printed), CSV (one file per data type), SQLite (normalized with foreign keys and indexes)
+- **Built-in analytics** - calorie stats, macro ratios, meal distribution, weight trend, calorie-weight correlation, top products
+- **LLM-ready analysis** - generates a compact prompt you can paste into ChatGPT, Claude, DeepSeek, or Gemini for personalized nutrition insights
+- **Auto-discovery** - scans your history automatically, no date range needed
+- **Concurrent fetching** - parallel API calls (up to 10 workers) for fast exports
+- **One-shot export** - `export-all` dumps everything in a single command
 
 ## Requirements
 
@@ -64,11 +64,11 @@ yazio-exporter summary -w weight.json
 yazio-exporter report
 ```
 
-All commands have sensible defaults — `login` saves to `token.txt`, other commands read from it, and each writes to its natural filename (`days.json`, `weight.json`, etc.).
+All commands have sensible defaults - `login` saves to `token.txt`, other commands read from it, and each writes to its natural filename (`days.json`, `weight.json`, etc.).
 
 ## CLI reference
 
-### `login` — Authenticate and save token
+### `login` - Authenticate and save token
 
 ```
 yazio-exporter login EMAIL PASSWORD [-o token.txt]
@@ -82,7 +82,7 @@ yazio-exporter login EMAIL PASSWORD [-o token.txt]
 
 Token file is created with `0600` permissions.
 
-### `profile` — Export user profile
+### `profile` - Export user profile
 
 ```
 yazio-exporter profile [-t token.txt] [-o profile.json] [--format json]
@@ -94,7 +94,7 @@ yazio-exporter profile [-t token.txt] [-o profile.json] [--format json]
 | `-o, --output`  | Output file (default: `profile.json`)           |
 | `--format`      | `json`, `csv`, or `sqlite` (default: `json`)    |
 
-### `days` — Export daily diary data
+### `days` - Export daily diary data
 
 ```
 yazio-exporter days [-t token.txt] [-o days.json] [-f 2024-01-01] [-e 2024-12-31]
@@ -111,7 +111,7 @@ yazio-exporter days [-t token.txt] [-o days.json] [-f 2024-01-01] [-e 2024-12-31
 
 Without `--from-date`/`--end-date`, auto-discovers all months with data.
 
-### `weight` — Export weight and body measurements
+### `weight` - Export weight and body measurements
 
 ```
 yazio-exporter weight [-t token.txt] [-o weight.json] [-f 2024-01-01] [-e 2024-12-31]
@@ -125,7 +125,7 @@ yazio-exporter weight [-t token.txt] [-o weight.json] [-f 2024-01-01] [-e 2024-1
 | `-f, --from-date` | Start date, YYYY-MM-DD (default: 365 days ago)  |
 | `-e, --end-date`  | End date, YYYY-MM-DD (default: today)            |
 
-### `nutrients` — Export nutrient history
+### `nutrients` - Export nutrient history
 
 ```
 yazio-exporter nutrients [-t token.txt] [-o nutrients.json] [-n vitamin.d,mineral.iron]
@@ -145,7 +145,7 @@ yazio-exporter nutrients [-t token.txt] [-o nutrients.json] [-n vitamin.d,minera
 - **Vitamins:** `vitamin.a`, `vitamin.b1`, `vitamin.b2`, `vitamin.b3`, `vitamin.b5`, `vitamin.b6`, `vitamin.b7`, `vitamin.b11`, `vitamin.b12`, `vitamin.c`, `vitamin.d`, `vitamin.e`, `vitamin.k`
 - **Minerals:** `mineral.calcium`, `mineral.iron`, `mineral.potassium`, `mineral.magnesium`, `mineral.phosphorus`, `mineral.zinc`, `mineral.copper`, `mineral.manganese`, `mineral.selenium`, `mineral.iodine`, `mineral.fluoride`, `mineral.chlorine`, `mineral.choline`
 
-### `products` — Resolve product details from days export
+### `products` - Resolve product details from days export
 
 ```
 yazio-exporter products [-t token.txt] [-f days.json] [-o products.json]
@@ -158,7 +158,7 @@ yazio-exporter products [-t token.txt] [-f days.json] [-o products.json]
 | `-o, --output`    | Output file (default: `products.json`)          |
 | `--format`        | `json`, `csv`, or `sqlite` (default: `json`)    |
 
-### `summary` — Generate analytics and statistics
+### `summary` - Generate analytics and statistics
 
 ```
 yazio-exporter summary [-f days.json] [-w weight.json] [-p products.json]
@@ -174,7 +174,7 @@ yazio-exporter summary [-f days.json] [-w weight.json] [-p products.json]
 
 Outputs to stdout.
 
-### `export-all` — Complete export pipeline
+### `export-all` - Complete export pipeline
 
 ```
 yazio-exporter export-all EMAIL PASSWORD [-o output/]
@@ -189,7 +189,7 @@ yazio-exporter export-all EMAIL PASSWORD [-o output/]
 
 Creates the output directory and writes: `profile.json`, `days.json`, `weight.json`, `nutrients.json`, `products.json`, `summary.txt`, `analysis.md`, `llm_prompt.txt`.
 
-### `report` — Generate analysis and LLM prompt from existing exports
+### `report` - Generate analysis and LLM prompt from existing exports
 
 ```
 yazio-exporter report [-d output/] [--start 2024-01-01] [--end 2024-12-31]
@@ -205,7 +205,7 @@ Reads `days.json`, `weight.json`, `products.json`, and `profile.json` from the d
 
 ## LLM analysis
 
-The `export-all` and `report` commands generate an `llm_prompt.txt` file — a compact, paste-ready prompt containing your nutrition data formatted for any LLM. Copy the contents and paste into ChatGPT, Claude, DeepSeek, or Gemini to get personalized insights:
+The `export-all` and `report` commands generate an `llm_prompt.txt` file - a compact, paste-ready prompt containing your nutrition data formatted for any LLM. Copy the contents and paste into ChatGPT, Claude, DeepSeek, or Gemini to get personalized insights:
 
 ```bash
 # Generate from existing exports
@@ -218,7 +218,7 @@ yazio-exporter report -d output/ --start 2024-06-01 --end 2024-12-31
 cat output/llm_prompt.txt | pbcopy  # macOS
 ```
 
-The prompt instructs the LLM to act as a sports nutritionist and analyze binge-recovery cycles, plateau mechanics, TDEE, trigger patterns, protein adequacy, food crutches, and more — all backed by your actual data.
+The prompt instructs the LLM to act as a sports nutritionist and analyze binge-recovery cycles, plateau mechanics, TDEE, trigger patterns, protein adequacy, food crutches, and more - all backed by your actual data.
 
 An `analysis.md` file is also generated with pre-computed statistics (calorie averages, macro splits, weight trends, top foods) that you can reference directly or include alongside the LLM prompt for richer context.
 
@@ -284,3 +284,7 @@ just clean          # remove build artifacts
 ## License
 
 MIT
+
+---
+
+<img src=".github/mark.svg" height="15" alt=""> built by [bogdanov.wtf](https://bogdanov.wtf)
