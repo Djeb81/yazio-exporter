@@ -3,10 +3,14 @@ Tests for generate_reports module.
 """
 
 from yazio_exporter.generate_reports import (
+    _daily_steps,
     _detect_active_range,
+    _exercise_sessions,
     _extract_daily_records,
     _food_stats,
     _get_products_map,
+    _session_type_stats,
+    _time_of_day_split,
     _weekly_aggregate,
     generate_analysis,
     generate_llm_prompt,
@@ -263,3 +267,119 @@ def test_get_products_map_flat_format():
     result = _get_products_map(data)
     assert "p1" in result
     assert result["p1"]["name"] == "Test"
+
+
+def _make_session(date, name="strengthtraining", duration=15, energy=116.0):
+    """Helper to create a training entry as returned by the exercises endpoint."""
+    return {"date": date, "name": name, "duration": duration, "energy": energy}
+
+
+def _make_days_with_exercise():
+    """Multi-day dataset with training sessions inside and outside the tracked period."""
+    days = _make_days_data()
+    days["2024-01-15"]["exercises"] = {
+        "training": [_make_session("2024-01-15 06:41:00")],
+        "custom_training": [],
+        "activity": {"steps": 8000},
+    }
+    days["2024-01-16"]["exercises"] = {
+        "training": [_make_session("2024-01-16 19:45:00", duration=12, energy=92.0)],
+        "custom_training": [_make_session("2024-01-16 13:00:00", name="running", duration=30, energy=332.0)],
+        "activity": {"steps": 0},
+    }
+    days["2024-01-17"]["exercises"] = {
+        "training": [{"date": None, "name": "hiit", "duration": 15, "energy": 148.0}],
+        "custom_training": [],
+        "activity": None,
+    }
+    # Day below the calorie threshold, outside the active range
+    days["2023-12-01"] = _make_day(200)
+    days["2023-12-01"]["exercises"] = {
+        "training": [_make_session("2023-12-01 07:00:00")],
+        "custom_training": [],
+        "activity": {"steps": 5000},
+    }
+    return days
+
+
+def test_exercise_sessions_splits_inside_and_outside_period():
+    days = _make_days_with_exercise()
+    sessions, outside = _exercise_sessions(days, "2024-01-15", "2024-01-19")
+
+    assert len(sessions) == 4
+    assert outside == 1
+    assert [s["date"] for s in sessions] == ["2024-01-15", "2024-01-16", "2024-01-16", "2024-01-17"]
+    assert sessions[0]["time"] == "06:41"
+    assert sessions[0]["kcal"] == 116
+    assert sessions[3]["time"] == ""
+
+
+def test_exercise_sessions_includes_custom_training():
+    days = _make_days_with_exercise()
+    sessions, _ = _exercise_sessions(days, "2024-01-16", "2024-01-16")
+
+    assert {s["name"] for s in sessions} == {"strengthtraining", "running"}
+
+
+def test_exercise_sessions_handles_missing_exercises_key():
+    days = _make_days_data()
+    sessions, outside = _exercise_sessions(days, "2024-01-15", "2024-01-19")
+
+    assert sessions == []
+    assert outside == 0
+
+
+def test_time_of_day_split_buckets_by_hour():
+    sessions = [
+        {"time": "06:41"},
+        {"time": "11:59"},
+        {"time": "12:00"},
+        {"time": "17:59"},
+        {"time": "18:00"},
+        {"time": ""},
+    ]
+    split = _time_of_day_split(sessions)
+
+    assert split == {"morning": 2, "afternoon": 2, "evening": 1, "unknown": 1}
+
+
+def test_session_type_stats_aggregates_and_orders_by_frequency():
+    sessions = [
+        {"name": "running", "duration": 30, "kcal": 332},
+        {"name": "strengthtraining", "duration": 15, "kcal": 116},
+        {"name": "strengthtraining", "duration": 12, "kcal": 92},
+    ]
+    stats = _session_type_stats(sessions)
+
+    assert stats[0] == {"name": "strengthtraining", "count": 2, "minutes": 27, "kcal": 208}
+    assert stats[1] == {"name": "running", "count": 1, "minutes": 30, "kcal": 332}
+
+
+def test_daily_steps_skips_zero_missing_and_out_of_range():
+    days = _make_days_with_exercise()
+    steps = _daily_steps(days, "2024-01-15", "2024-01-19")
+
+    assert steps == [8000]
+
+
+def test_generate_analysis_exercise_section_with_sessions():
+    result = generate_analysis(_make_days_with_exercise(), {}, {}, {})
+
+    assert "## Exercise" in result
+    assert "- Sessions: 4 on 3/5 days (60%)" in result
+    assert "- Volume: 72 min total, 18 min avg per session" in result
+    assert "- Time of day: 1 morning / 1 afternoon / 1 evening / 1 unknown" in result
+    assert "- Steps: 8000/day avg over 1 days with data" in result
+    assert "- Outside this period: 1 sessions not counted above" in result
+    assert "| strengthtraining | 2 | 27 | 208 |" in result
+    assert "### Recent Sessions" in result
+    assert "| 2024-01-15 | 06:41 | strengthtraining | 15 | 116 |" in result
+    assert "| 2024-01-17 | ? | hiit | 15 | 148 |" in result
+
+
+def test_generate_analysis_exercise_section_without_sessions():
+    result = generate_analysis(_make_days_data(), {}, {}, {})
+
+    assert "## Exercise" in result
+    assert "- No training sessions logged in this period" in result
+    assert "### Recent Sessions" not in result

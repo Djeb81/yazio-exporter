@@ -14,6 +14,9 @@ from typing import Any
 MIN_CALORIES = 800
 TOP_FOODS_COUNT = 30
 MAX_DAILY_ROWS = 400
+EXERCISE_ROWS = 15
+MORNING_END = "12:00"
+AFTERNOON_END = "18:00"
 
 
 # ── Shared helpers ────────────────────────────────────────────────
@@ -135,6 +138,93 @@ def _food_stats(
     return rows
 
 
+def _exercise_sessions(
+    days_data: dict[str, Any],
+    start: str,
+    end: str,
+) -> tuple[list[dict[str, Any]], int]:
+    """
+    Flatten training sessions into records, split by whether they fall in [start, end].
+
+    Args:
+        days_data: Days export data
+        start: First date of the reporting period (YYYY-MM-DD)
+        end: Last date of the reporting period (YYYY-MM-DD)
+
+    Returns:
+        Tuple of (sessions inside the period, count of sessions outside it)
+    """
+    sessions = []
+    outside = 0
+
+    for date_str in sorted(days_data.keys()):
+        exercises = days_data[date_str].get("exercises") or {}
+        entries = (exercises.get("training") or []) + (exercises.get("custom_training") or [])
+        for entry in entries:
+            if date_str < start or date_str > end:
+                outside += 1
+                continue
+            stamp = entry.get("date") or ""
+            sessions.append(
+                {
+                    "date": date_str,
+                    "time": stamp[11:16] if len(stamp) >= 16 else "",
+                    "name": entry.get("name") or "unknown",
+                    "duration": entry.get("duration") or 0,
+                    "kcal": round(entry.get("energy") or 0),
+                }
+            )
+
+    return sessions, outside
+
+
+def _daily_steps(days_data: dict[str, Any], start: str, end: str) -> list[int]:
+    """Collect non-zero daily step counts within [start, end]."""
+    steps = []
+    for date_str, day_info in days_data.items():
+        if date_str < start or date_str > end:
+            continue
+        activity = (day_info.get("exercises") or {}).get("activity") or {}
+        count = activity.get("steps") or 0
+        if count:
+            steps.append(count)
+    return steps
+
+
+def _session_type_stats(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate sessions by exercise name, most frequent first."""
+    freq: Counter = Counter()
+    minutes: dict[str, int] = defaultdict(int)
+    kcal: dict[str, int] = defaultdict(int)
+
+    for session in sessions:
+        name = session["name"]
+        freq[name] += 1
+        minutes[name] += session["duration"]
+        kcal[name] += session["kcal"]
+
+    return [
+        {"name": name, "count": count, "minutes": minutes[name], "kcal": kcal[name]}
+        for name, count in freq.most_common()
+    ]
+
+
+def _time_of_day_split(sessions: list[dict[str, Any]]) -> dict[str, int]:
+    """Bucket sessions into morning, afternoon, evening, and unknown-time counts."""
+    buckets = {"morning": 0, "afternoon": 0, "evening": 0, "unknown": 0}
+    for session in sessions:
+        time_str = session["time"]
+        if not time_str:
+            buckets["unknown"] += 1
+        elif time_str < MORNING_END:
+            buckets["morning"] += 1
+        elif time_str < AFTERNOON_END:
+            buckets["afternoon"] += 1
+        else:
+            buckets["evening"] += 1
+    return buckets
+
+
 # ── Analysis summary ──────────────────────────────────────────────
 
 
@@ -230,6 +320,13 @@ def generate_analysis(
     # Food stats
     foods = _food_stats(tracked, products, 20)
 
+    # Exercise stats
+    sessions, sessions_outside = _exercise_sessions(days_data, start, end)
+    session_types = _session_type_stats(sessions)
+    time_split = _time_of_day_split(sessions)
+    steps = _daily_steps(days_data, start, end)
+    training_days = len({s["date"] for s in sessions})
+
     # Protein per kg
     avg_weight = statistics.mean(all_weights) if all_weights else 80
     prot_per_kg = avg_p / avg_weight if avg_weight else 0
@@ -296,6 +393,43 @@ def generate_analysis(
     c_pct = diet.get("carb_percentage", "?")
     f_pct = diet.get("fat_percentage", "?")
     a(f"- Goal split: P {p_pct}% / C {c_pct}% / F {f_pct}%")
+
+    a("")
+    a("## Exercise")
+    if sessions:
+        total_minutes = sum(s["duration"] for s in sessions)
+        total_burned = sum(s["kcal"] for s in sessions)
+        per_week = len(sessions) / weeks if weeks else len(sessions)
+        a(
+            f"- Sessions: {len(sessions)} on {training_days}/{total_days} days "
+            f"({training_days / total_days * 100:.0f}%), {per_week:.1f}/week"
+        )
+        a(f"- Volume: {total_minutes} min total, {total_minutes / len(sessions):.0f} min avg per session")
+        a(f"- Burned: {total_burned} kcal total, {total_burned / len(tracked):.0f} kcal avg per tracked day")
+        a(
+            f"- Time of day: {time_split['morning']} morning / "
+            f"{time_split['afternoon']} afternoon / {time_split['evening']} evening"
+            + (f" / {time_split['unknown']} unknown" if time_split["unknown"] else "")
+        )
+        if steps:
+            a(f"- Steps: {statistics.mean(steps):.0f}/day avg over {len(steps)} days with data")
+        if sessions_outside:
+            a(f"- Outside this period: {sessions_outside} sessions not counted above")
+        a("")
+        a("| Type | Sessions | Minutes | kcal |")
+        a("|---|---|---|---|")
+        for t in session_types:
+            a(f"| {t['name']} | {t['count']} | {t['minutes']} | {t['kcal']} |")
+        a("")
+        a("### Recent Sessions")
+        a("| Date | Time | Type | Min | kcal |")
+        a("|---|---|---|---|---|")
+        for s_row in sessions[-EXERCISE_ROWS:]:
+            a(f"| {s_row['date']} | {s_row['time'] or '?'} | {s_row['name']} | {s_row['duration']} | {s_row['kcal']} |")
+    else:
+        a("- No training sessions logged in this period")
+        if sessions_outside:
+            a(f"- Outside this period: {sessions_outside} sessions")
 
     a("")
     a("## Day of Week")
