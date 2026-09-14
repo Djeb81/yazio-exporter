@@ -3,6 +3,7 @@ HTTP client wrapper using requests.Session.
 """
 
 import time
+from collections.abc import Callable
 
 import requests
 
@@ -18,6 +19,10 @@ class YazioClient:
         self.api_version = api_version
         self.session = requests.Session()
         self.session.timeout = REQUEST_TIMEOUT
+        # Optional self-imposed throttle (sync mode): called before every request.
+        self.throttle: Callable[[], None] | None = None
+        # Optional token refresher: returns a new access token, tried once on 401.
+        self.refresher: Callable[[], str] | None = None
 
     def set_token(self, token: str) -> None:
         """Set the authorization token for all requests."""
@@ -53,10 +58,35 @@ class YazioClient:
             kwargs["timeout"] = REQUEST_TIMEOUT
 
         last_error = None
+        refreshed = False
 
         for attempt in range(max_retries):
             try:
+                if self.throttle is not None:
+                    self.throttle()
                 response = self.session.get(url, **kwargs)
+
+                # Expired token: refresh silently once, then re-authenticate loudly
+                if response.status_code == 401 and self.refresher is not None and not refreshed:
+                    refreshed = True
+                    self.set_token(self.refresher())
+                    continue
+
+                # Rate limited: honour Retry-After, otherwise exponential backoff
+                if response.status_code == 429:
+                    last_error = APIError(
+                        f"HTTP 429 rate limited for URL: {url}",
+                        status_code=429,
+                        url=url,
+                    )
+                    if attempt < max_retries - 1:
+                        retry_after = response.headers.get("Retry-After")
+                        backoff_time = (
+                            float(retry_after) if retry_after and retry_after.isdigit() else 2 ** (attempt + 1)
+                        )
+                        time.sleep(backoff_time)
+                        continue
+                    raise last_error
 
                 # Check for 401 expired token errors
                 if response.status_code == 401:

@@ -23,3 +23,10 @@ class APIError(YazioExporterError):
         self.status_code = status_code
         self.url = url
         super().__init__(message)
+
+
+class SchemaError(YazioExporterError):
+    """Raised when an API response does not match the expected structure.
+
+    The exporter fails loudly rather than writing a silently truncated series.
+    """

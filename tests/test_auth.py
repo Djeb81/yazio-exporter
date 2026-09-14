@@ -2,6 +2,7 @@
 Tests for authentication.
 """
 
+import json
 import os
 import tempfile
 
@@ -97,10 +98,11 @@ def test_login_and_save_creates_file_with_token():
         # Verify file was created
         assert os.path.exists(token_file), "Token file was not created"
 
-        # Verify file contains the access token
+        # Verify file contains the token payload as JSON (access token + expiry for silent refresh)
         with open(token_file) as f:
-            content = f.read()
-        assert content == "test_token_xyz", f"Expected 'test_token_xyz', got '{content}'"
+            content = json.load(f)
+        assert content["access_token"] == "test_token_xyz"
+        assert "expires_at" in content
 
         # Verify file permissions are 0600 (owner read/write only)
         file_stat = os.stat(token_file)

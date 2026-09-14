@@ -135,6 +135,20 @@ def main():
     )
 
     # report subcommand
+    sync_parser = subparsers.add_parser(
+        "sync", help="Incremental daemon sync: rate-limited, validated, re-fetches the last N days"
+    )
+    sync_parser.add_argument(
+        "-o", "--output-dir", default="~/yazio-export", help="Export directory (default: %(default)s)"
+    )
+    sync_parser.add_argument("-t", "--token", help="Token file (default: <output-dir>/token.txt)")
+    sync_parser.add_argument(
+        "--window", type=int, default=3, help="Days re-fetched on every run (default: %(default)s)"
+    )
+    sync_parser.add_argument("--refresh", action="store_true", help="Re-fetch the whole history")
+    sync_parser.add_argument("--rate", type=float, default=1.0, help="Max requests per second (default: %(default)s)")
+    sync_parser.add_argument("--today", help="Override today's date (YYYY-MM-DD), for tests")
+
     report_parser = subparsers.add_parser("report", help="Generate analysis and LLM prompt from existing exports")
     report_parser.add_argument(
         "-d", "--dir", default="output/", help="Directory with exported JSON files (default: %(default)s)"
@@ -165,6 +179,8 @@ def main():
             return cmd_summary(args)
         elif args.command == "export-all":
             return cmd_export_all(args)
+        elif args.command == "sync":
+            return cmd_sync(args)
         elif args.command == "report":
             return cmd_report(args)
     except AuthenticationError as e:
@@ -446,6 +462,34 @@ def cmd_export_all(args):
 
     stats = export_all(client, args.output, format=args.format)
     print_summary(stats)
+    return 0
+
+
+def cmd_sync(args):
+    """Handle the sync subcommand. Exit codes: 2 auth, 3 schema, 4 api."""
+    import os
+    from datetime import datetime
+
+    from yazio_exporter.auth import make_authenticated_client
+    from yazio_exporter.exceptions import APIError, AuthenticationError, SchemaError
+    from yazio_exporter.sync import RateLimiter, sync
+
+    output_dir = os.path.expanduser(args.output_dir)
+    token_file = args.token or os.path.join(output_dir, "token.txt")
+    try:
+        client = make_authenticated_client(token_file)
+        client.throttle = RateLimiter(1.0 / args.rate if args.rate > 0 else 0.0)
+        today = datetime.strptime(validate_date(args.today), "%Y-%m-%d").date() if args.today else None
+        sync(client, output_dir, window_days=args.window, refresh=args.refresh, today=today)
+    except AuthenticationError as e:
+        print_stderr(f"sync aborted (authentication): {e}")
+        return 2
+    except SchemaError as e:
+        print_stderr(f"sync aborted (schema): {e}")
+        return 3
+    except APIError as e:
+        print_stderr(f"sync aborted (api): {e}")
+        return 4
     return 0
 
 

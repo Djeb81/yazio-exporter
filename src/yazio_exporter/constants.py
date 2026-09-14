@@ -10,6 +10,8 @@ __all__ = [
     "DEFAULT_WORKERS",
     "NUTRIENT_WORKERS",
     "DISCOVERY_LOOKBACK_YEARS",
+    "SYNC_MIN_INTERVAL_SECONDS",
+    "SYNC_WINDOW_DAYS",
     "BODY_MEASUREMENT_TYPES",
     "ALL_VITAMINS",
     "ALL_MINERALS",
@@ -22,6 +24,9 @@ MAX_RETRIES = 3
 DEFAULT_WORKERS = 10
 NUTRIENT_WORKERS = 5
 DISCOVERY_LOOKBACK_YEARS = 5
+# sync: self-imposed rate limit (one request per second) and re-fetch window (days)
+SYNC_MIN_INTERVAL_SECONDS = 1.0
+SYNC_WINDOW_DAYS = 3
 
 BODY_MEASUREMENT_TYPES = ["body_fat", "waist", "hip", "chest"]
 
