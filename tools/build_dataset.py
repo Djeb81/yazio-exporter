@@ -17,12 +17,14 @@ import os
 import statistics
 from collections import defaultdict
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 
 D = Path(os.environ.get("YAZIO_EXPORT_DIR", Path.home() / "yazio-export")).expanduser()
 DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 MIN_KCAL = 800
 LOW_STEPS = 2000
+RUN_GAP_DAYS = 30  # a pause longer than this starts a new tracking run
 
 # Personal identifiers never written to the dataset.
 PROFILE_DROP = {
@@ -41,6 +43,16 @@ PROFILE_DROP = {
     "tags",
     "date_of_birth",
 }
+
+
+def find_gaps(dates):
+    """Pauses longer than RUN_GAP_DAYS, as (last_day_before, first_day_after) pairs."""
+    out = []
+    for prev, cur in pairwise(dates):
+        span = (datetime.strptime(cur, "%Y-%m-%d") - datetime.strptime(prev, "%Y-%m-%d")).days
+        if span > RUN_GAP_DAYS:
+            out.append((prev, cur))
+    return out
 
 
 def load(name):
@@ -114,6 +126,7 @@ def build():
                 },
                 "goal_kcal": round(goals.get("energy.energy") or 0),
                 "goal_protein_g": round(goals.get("nutrient.protein") or 0),
+                "goal_weight_kg": goals.get("bodyvalue.weight"),
                 "water_ml": round((di.get("water") or {}).get("water_intake") or 0),
                 "goal_water_ml": round(goals.get("water") or 0),
                 "steps": steps,
@@ -175,8 +188,12 @@ def build():
         }
 
     tracked = [r for r in daily if not r["below_tracking_threshold"]]
-    recent = [r for r in tracked if r["date"] >= "2026-08-31"]
-    sess_recent = [s for s in sessions if s["date"] >= "2026-08-31"]
+    # gaps are read from the whole record, not just tracked days: a barely-logged
+    # day still proves the app was open, and a 16-month hole must stay visible.
+    gaps = find_gaps([r["date"] for r in daily])
+    run_start = gaps[-1][1] if gaps else (daily[0]["date"] if daily else None)
+    recent = [r for r in tracked if run_start and r["date"] >= run_start]
+    sess_recent = [s for s in sessions if run_start and s["date"] >= run_start]
 
     u = profile["user"]
     prof = {k: v for k, v in u.items() if k not in PROFILE_DROP}
@@ -207,8 +224,13 @@ def build():
                 "Excluded from `metrics.*_excluding_partial`.",
                 "TRACKING THRESHOLD: rows with `below_tracking_threshold` true are under 800 kcal and represent days "
                 "the user barely logged, not days they barely ate.",
-                "HISTORY GAP: tracking ran 2025-04-16/17, then stopped until 2026-08-31. Do not interpolate across "
-                "that 16-month gap.",
+                "HISTORY GAP: "
+                + (
+                    "; ".join(f"no tracking between {a} and {b}" for a, b in gaps)
+                    if gaps
+                    else "the tracked days are contiguous"
+                )
+                + ". Do not interpolate across a gap.",
                 "STEP SENSOR: `steps_suspect` marks days under 2000 steps, where the phone was likely not carried. "
                 "Treat as missing, not as inactivity.",
                 "MICRONUTRIENT UNITS: values are returned raw by the Yazio API, which does not declare a unit per "
@@ -223,6 +245,7 @@ def build():
         },
         "profile": prof,
         "metrics": {
+            "recent_window_start": run_start,
             "all_tracked": agg(tracked),
             "recent_all": agg(recent),
             "recent_excluding_partial": agg([r for r in recent if not r["partial"]]),
@@ -244,7 +267,7 @@ def build():
                 "real_weigh_ins": len(weigh_ins),
                 "first": weigh_ins[0] if weigh_ins else None,
                 "latest": weigh_ins[-1] if weigh_ins else None,
-                "recent_weigh_ins": [w for w in weigh_ins if w["date"] >= "2026-08-31"],
+                "recent_weigh_ins": [w for w in weigh_ins if run_start and w["date"] >= run_start],
             },
         },
         "weigh_ins": weigh_ins,
@@ -273,6 +296,7 @@ def write_csvs(data, outdir):
         *[f"{m}_kcal" for m in meals],
         "goal_kcal",
         "goal_protein_g",
+        "goal_weight_kg",
         "water_ml",
         "goal_water_ml",
         "steps",

@@ -47,8 +47,20 @@ a reader would otherwise have to know by heart:
 It also strips account identifiers, name and date of birth from the profile, so
 the file can be handed to a third party. It still contains detailed health data.
 
-## Personal defaults
+## `build_analysis.py` options
 
-`build_analysis.py` writes a French-language report and hardcodes two values at
-the top of the file: `WIN`, the first day of the current tracking run, and
-`TARGET_KG`, the weight goal. Adjust both before reusing.
+The report is written in French. Both of its inputs are derived from the export
+and can be overridden:
+
+| Option | Default |
+|---|---|
+| `--start` | First day of the latest tracking run, i.e. after the last pause longer than 30 days |
+| `--target` | The weight goal set in the app (`bodyvalue.weight`) |
+| `--out` | `<export dir>/analyse.html` |
+
+```bash
+python3 tools/build_analysis.py --start 2026-09-01 --target 80
+```
+
+If the export carries no weight goal, the goal row and the projection are
+omitted rather than guessed.

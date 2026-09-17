@@ -1,25 +1,73 @@
 #!/usr/bin/env python3
 """Build the analysis page from yazio-dataset.json. Every figure is derived here."""
 
+import argparse
 import html
 import json
 import os
 import statistics
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 
 D = Path(os.environ.get("YAZIO_EXPORT_DIR", Path.home() / "yazio-export")).expanduser()
-OUT = D / "analyse.html"
-WIN = "2026-08-31"  # start of the current tracking run
-TARGET_KG = 75.0  # weight goal set in the app
+
+RUN_GAP_DAYS = 30  # a pause longer than this starts a new tracking run
+
+
+def detect_run_start(daily):
+    """First day of the latest tracking run, i.e. after the last long pause."""
+    dates = [r["date"] for r in daily if not r["below_tracking_threshold"]]
+    if not dates:
+        return daily[0]["date"] if daily else "1970-01-01"
+    start = dates[0]
+    for prev, cur in pairwise(dates):
+        gap = (datetime.strptime(cur, "%Y-%m-%d") - datetime.strptime(prev, "%Y-%m-%d")).days
+        if gap > RUN_GAP_DAYS:
+            start = cur
+    return start
+
+
+def detect_target(daily):
+    """Weight goal as set in the app, taken from the most recent day that carries one."""
+    for r in reversed(daily):
+        if r.get("goal_weight_kg"):
+            return float(r["goal_weight_kg"])
+    return None
+
+
+ap = argparse.ArgumentParser(description=__doc__)
+ap.add_argument("--start", help="First day to analyse (YYYY-MM-DD). Default: start of the latest tracking run.")
+ap.add_argument("--target", type=float, help="Weight goal in kg. Default: the goal set in the app.")
+ap.add_argument("--out", help="Output file. Default: <export dir>/analyse.html")
+args = ap.parse_args()
 
 d = json.loads((D / "yazio-dataset.json").read_text(encoding="utf-8"))
+OUT = Path(args.out) if args.out else D / "analyse.html"
+WIN = args.start or d["metrics"].get("recent_window_start") or detect_run_start(d["daily"])
+TARGET_KG = args.target if args.target is not None else detect_target(d["daily"])
 prof, mets = d["profile"], d["metrics"]
 tracked = [r for r in d["daily"] if not r["below_tracking_threshold"] and r["date"] >= WIN]
 rows_all = [r for r in d["daily"] if r["date"] >= WIN]
 wi = [w for w in d["weigh_ins"] if w["date"] >= WIN]
 sess = [s for s in d["sessions"] if s["date"] >= WIN]
 FR = {"Mon": "Lun", "Tue": "Mar", "Wed": "Mer", "Thu": "Jeu", "Fri": "Ven", "Sat": "Sam", "Sun": "Dim"}
+MONTHS_FR = (
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+)
+_last = tracked[-1]["date"] if tracked else WIN
+TITLE = f"Bilan nutrition, {MONTHS_FR[int(_last[5:7]) - 1]} {_last[:4]}"
 
 
 def mean(rs, k):
@@ -149,7 +197,7 @@ def td(v):
 
 P = []
 P.append('<meta name="viewport" content="width=device-width,initial-scale=1">')
-P.append("<title>Bilan nutrition, rentrée 2026</title>")
+P.append(f"<title>{TITLE}</title>")
 P.append(
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
@@ -163,7 +211,7 @@ P.append("<style>" + CSS + "</style>")
 P.append('<div class="wrap">')
 
 P.append('<header class="prose"><p class="eyebrow">Analyse d’export</p>')
-P.append("<h1>Bilan nutrition, rentrée 2026</h1>")
+P.append(f"<h1>{TITLE}</h1>")
 P.append(
     f'<p class="lede">{len(tracked)} jours suivis du {WIN} au {tracked[-1]["date"]}, {len(wi)} pesées réelles, '
     f"{len(sess)} séances. Généré le {d['_readme']['generated_at'][:10]} depuis l’export Yazio.</p></header>"
@@ -176,11 +224,16 @@ P.append(
     f"<tr><td>Profil</td><td>Homme, {prof['age_years']} ans, {prof['body_height']:.0f} cm, "
     f"{wt} kg au {wi[-1]['date']}</td></tr>"
 )
-P.append("<tr><td>Objectif</td><td>Établir la dépense réelle, puis perdre en recomposition</td></tr>")
+_aim = {"lose": "perdre du poids", "gain": "prendre du poids", "maintain": "stabiliser le poids"}
 P.append(
-    f"<tr><td>Cible poids</td><td>{fr(TARGET_KG)} kg, soit {fr(wt - TARGET_KG)} kg à perdre, "
-    f"à {fr(abs(prof['weight_change_per_week']))} kg/semaine visée</td></tr>"
+    f"<tr><td>Objectif</td><td>Établir la dépense réelle, puis "
+    f"{_aim.get(prof.get('goal'), 'atteindre l’objectif fixé')}</td></tr>"
 )
+if TARGET_KG:
+    P.append(
+        f"<tr><td>Cible poids</td><td>{fr(TARGET_KG)} kg, soit {fr(wt - TARGET_KG)} kg à perdre, "
+        f"à {fr(abs(prof['weight_change_per_week']))} kg/semaine visée</td></tr>"
+    )
 P.append(
     f"<tr><td>Objectif app</td><td>{goal} kcal, <code>activity_degree = {prof['activity_degree']}</code></td></tr>"
 )
@@ -294,13 +347,15 @@ P.append(
     "<p>Ce chiffre reste provisoire. Il demande quatre à six semaines de pesées quotidiennes "
     "pour se stabiliser.</p></div>"
 )
-P.append(
-    f'<p class="lede">Arithmétique brute, sans prescription : de {wt} à 75 kg, '
-    f"à {CENTRE - avg:.0f} kcal de déficit il faut environ {(wt - TARGET_KG) * 7700 / ((CENTRE - avg) * 30.4):.0f} "
-    f"mois ; "
-    f"à 500 kcal de déficit (apport {CENTRE - 500:.0f}), environ {(wt - TARGET_KG) * 7700 / (500 * 30.4):.0f} "
-    f"mois.</p></section>"
-)
+if TARGET_KG and wt > TARGET_KG:
+    _slow = (wt - TARGET_KG) * 7700 / ((CENTRE - avg) * 30.4)
+    _fast = (wt - TARGET_KG) * 7700 / (500 * 30.4)
+    P.append(
+        f'<p class="lede">Arithmétique brute, sans prescription : de {fr(wt)} à {fr(TARGET_KG)} kg, '
+        f"à {CENTRE - avg:.0f} kcal de déficit il faut environ {_slow:.0f} mois ; "
+        f"à 500 kcal de déficit (apport {CENTRE - 500:.0f}), environ {_fast:.0f} mois.</p>"
+    )
+P.append("</section>")
 
 # 5. activite
 act = mets["activity_recent"]
@@ -378,8 +433,8 @@ P.append(
     "puis <code>build_analysis.py</code>.</p>"
 )
 P.append(
-    "<p>La reprise sportive après intervention relève de l’équipe médicale qui suit le patient ; "
-    "cette page ne s’y prononce pas et se limite à ce que les données montrent.</p>"
+    "<p>Cette page se limite à ce que les données montrent. Toute décision d’entraînement "
+    "ou de santé relève d’un professionnel.</p>"
 )
 P.append("</footer></div>")
 
